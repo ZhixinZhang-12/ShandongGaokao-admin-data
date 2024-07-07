@@ -2,8 +2,10 @@ import numpy
 import pandas
 import datetime
 import random
-
+import multiprocessing
+import threading
 import re
+
 
 # 合并录取计划和选课要求，要求始终是不全的
 
@@ -117,10 +119,28 @@ def lqYearMerege(yearlist):
 '''
 
 
+def nameChange():
+
+    allname = pandas.read_excel(
+        io="名称变化.xlsx", header=0, sheet_name="Sheet1")
+    allname["namechange"] = allname.apply(lambda x: set([
+        x["院校名称2024"], x["院校名称2023"], x["院校名称2022"], x["院校名称2021"], x["院校名称2020"]]), axis=1) # type: ignore
+    allname["changetimes"] = allname["namechange"].apply(lambda x: len(x))
+
+    allname=allname[allname["changetimes"]>1]
+    print(allname.head())
+    with pandas.ExcelWriter(path="名称变化.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
+        allname.to_excel(excel_writer=xlsxwriter,sheet_name="名称变化", index=False, header=True)
+    return
+
+
+
+
+
 def adminPlan():
     # 院校名称，专业名称
     plan2024Year = pandas.read_excel(
-        io="山东省招生计划数据\\山东_招生计划_2024专科.xlsx", header=0, sheet_name="Sheet1")
+        io="山东省招生计划数据\\山东_招生计划_2024.xlsx", header=0, sheet_name="Sheet1")
     plan2024Year["专业名称简版"] = plan2024Year["专业名称"].apply(
         lambda x: (x.split(sep="("))[0])
 
@@ -132,20 +152,19 @@ def adminPlan():
         planOtherYear = pandas.read_excel(
             io=xlsxpath, header=0, sheet_name="Sheet1")
 
-        planOtherYear["院校名称"] = planOtherYear["招生院校"].apply(
-            lambda x: re.sub(pattern=collegekind, repl="", string=x))
-        planOtherYear.drop(labels=["院校编号", "专业编号"],
+        # planOtherYear["院校名称"] = planOtherYear["招生院校"].apply(
+        #     lambda x: re.sub(pattern=collegekind, repl="", string=x))
+        planOtherYear.drop(labels=["院校名称", "专业编号"],
                            axis="columns", inplace=True)
         # 去到括号以进行模糊匹配扩大对比时覆盖的数量
         planOtherYear["专业名称简版"] = planOtherYear["专业名称"].apply(
             lambda x: (x.split(sep="("))[0])
 
         plan2024Year = pandas.merge(left=plan2024Year, right=planOtherYear, how="left", left_on=[
-            "院校名称", "专业名称简版"], right_on=["院校名称", "专业名称简版"], suffixes=(None, y))
+            "院校代码", "专业名称简版"], right_on=["院校编号", "专业名称简版"], suffixes=(None, y))
         print(plan2024Year.head(n=2))
-    plan2024Year.to_excel(excel_writer="out1.xlsx",
+    plan2024Year.to_excel(excel_writer="本科1.xlsx",
                           sheet_name="Sheet1", index=False, header=True)
-
 
 # 专业代号及名称	院校代号及名称	投档计划数	投档最低位次
 
@@ -245,23 +264,56 @@ def filterTargetMajor():
 
 
 def filterduple():
-    xlsxpath = "专业名称仅括号前一致匹配版本.xlsx"
+    xlsxpath = "仅录取计划2.xlsx"
     mergePlan1 = pandas.read_excel(
         io=xlsxpath, header=0, sheet_name="Sheet1")
 
-    mergePlan2 = mergePlan1[(pandas.isna(mergePlan1["投档最低位次2023"]) & pandas.isna(
-        mergePlan1["投档最低位次2022"]) & pandas.isna(mergePlan1["投档最低位次2021"]) & pandas.isna(mergePlan1["投档最低位次2020"]))]
+    mergePlan2 = mergePlan1[(pandas.isna(mergePlan1["投档计划数2023"]) & pandas.isna(
+        mergePlan1["投档计划数2022"]) & pandas.isna(mergePlan1["投档计划数2021"]) & pandas.isna(mergePlan1["投档计划数2020"]))]
 
-    with pandas.ExcelWriter(path="专业新增.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
+    with pandas.ExcelWriter(path="仅录取计划2.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
         mergePlan2.to_excel(excel_writer=xlsxwriter,
-                            sheet_name="Sheet1", index=False, header=True)
+                            sheet_name="Sheet2", index=False, header=True)
     return
 
 
-filterduple()
 
+def finalVote():
+    finalVote = pandas.read_excel(
+        io="最终报考1.xlsx", header=0, sheet_name="Sheet1")
 
-def newinMajor():
-    
-    
+    infoFileFine = pandas.read_excel(
+        io="本科专业名称精确匹配.xlsx", header=0, sheet_name="Sheet1")
+    finalVoteFine = pandas.merge(left=finalVote, right=infoFileFine, left_on=[
+        "院校代码", "专业名称"], right_on=["院校代码", "专业名称"], how="left", suffixes=(None, "准确"))
+
+    infoFileObscure = pandas.read_excel(
+        io="本科专业名称模糊匹配.xlsx", header=0, sheet_name="Sheet1")
+    finalVote["专业名称简版"] = finalVote["专业名称"].apply(
+            lambda x: (x.split(sep="("))[0])
+    finalVoteObscure = pandas.merge(left=finalVote, right=infoFileObscure, left_on=[
+                             "院校代码", "专业名称简版"], right_on=["院校代码", "专业名称简版"], how="left",suffixes=(None,"模糊"))
+
+    with pandas.ExcelWriter(path="最终报考1.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
+
+        finalVoteFine.to_excel(excel_writer=xlsxwriter,
+                               sheet_name="精确匹配", index=False, header=True)
+        finalVoteObscure.to_excel(excel_writer=xlsxwriter,
+                            sheet_name="模糊匹配", index=False, header=True)
     return
+
+finalVote()
+
+'''
+青岛理工大学专业名称可能存在问题
+济南大学 自动化类-->自动化
+浙江科技学院-->浙江科技大学
+长春工程学院 测绘工程2024年山东未招生
+滨州学院-->山东航空学院
+
+'''
+if __name__=="__main__":
+    p = multiprocessing.Process(
+        target=finalVote, args=())
+    pass
+
