@@ -1,3 +1,4 @@
+from calendar import c
 import numpy
 import pandas
 import datetime
@@ -6,6 +7,8 @@ import multiprocessing
 import threading
 import re
 
+from sympy import true
+
 '''
 原则：以2024年数据作为基准，将其他年份的数据对齐到2024年的招生计划数据
 对齐基准：院校名称和专业名称两个，院校代码以及专业代码存在变化无法作为基准
@@ -13,7 +16,33 @@ import re
 特殊处理：
 2023年数据中招生院校中有办学类别标识如（山东公办），需要提前切分删除
 2022年数据中括号全部为中文，需要替换为英文
+
 '''
+
+
+def collegeInfo():
+    # 基于今年2024年专业选课限制中的学校名称为基准
+    college2024 = pandas.read_excel(
+        io="报考要求信息\\院校名单2024.xlsx", header=0, sheet_name="Sheet1")
+    # 基于2020年第一版专业选课限制中的学校名称为基准
+    college2020 = pandas.read_excel(
+        io="报考要求信息\\院校名单2020.xlsx", header=0, sheet_name="Sheet1")
+    # 院校名称
+    collegenamechange = pandas.read_excel(
+        io="报考要求信息\\高校名称变化.xlsx", header=0, sheet_name="往年院校名称")
+    c1 = pandas.merge(left=college2024, right=college2020,
+                      how="outer", on=["学校名称"])
+    c2 = pandas.merge(left=c1, right=collegenamechange,
+                      how="left", left_on=["学校名称"], right_on=["院校名称"])
+
+    with pandas.ExcelWriter(path="报考要求信息\\高校信息.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
+
+        c1.to_excel(excel_writer=xlsxwriter,
+                    sheet_name="Sheet1", index=False, header=True)
+        c2.to_excel(excel_writer=xlsxwriter,
+                    sheet_name="Sheet2", index=False, header=True)
+
+    return
 
 
 def nameChange():
@@ -21,23 +50,23 @@ def nameChange():
     allname = pandas.read_excel(
         io="名称变化.xlsx", header=0, sheet_name="Sheet1")
     allname["namechange"] = allname.apply(lambda x: set([
-        x["院校名称2024"], x["院校名称2023"], x["院校名称2022"], x["院校名称2021"], x["院校名称2020"]]), axis=1) # type: ignore
+        x["院校名称2024"], x["院校名称2023"], x["院校名称2022"], x["院校名称2021"], x["院校名称2020"]]), axis=1)  # type: ignore
     allname["changetimes"] = allname["namechange"].apply(lambda x: len(x))
 
-    allname=allname[allname["changetimes"]>1]
+    allname = allname[allname["changetimes"] > 1]
     print(allname.head())
     with pandas.ExcelWriter(path="名称变化.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
-        allname.to_excel(excel_writer=xlsxwriter,sheet_name="名称变化", index=False, header=True)
+        allname.to_excel(excel_writer=xlsxwriter,
+                         sheet_name="名称变化", index=False, header=True)
     return
 
 
-
-
-
 def adminPlan():
+    filepath1 = "山东省招生计划数据\\山东_招生计划_2024.xlsx"
+    filepath2 = "本科专业名称精确匹配.xlsx"
     # 院校名称，专业名称
     plan2024Year = pandas.read_excel(
-        io="山东省招生计划数据\\山东_招生计划_2024.xlsx", header=0, sheet_name="Sheet1")
+        io=filepath2, header=0, skiprows=0, sheet_name="Sheet1")
     plan2024Year["专业名称简版"] = plan2024Year["专业名称"].apply(
         lambda x: (x.split(sep="("))[0])
 
@@ -62,6 +91,39 @@ def adminPlan():
         print(plan2024Year.head(n=2))
     plan2024Year.to_excel(excel_writer="本科1.xlsx",
                           sheet_name="Sheet1", index=False, header=True)
+
+
+def adminPlanAddExtra(fn="本科1.xlsx"):
+    # 在2024年的数据中基于专业代码进行对齐会比基于名称进行对齐多出越7000条，几乎可以全覆盖
+    majorCode = "专业编号"  # 使用专业名称或者是专业名称简版(仅有括号前)
+    
+    # 院校名称，专业名称,之前已经完成合并的文件
+    originInfo = pandas.read_excel(
+        io=fn, header=0, skiprows=0, sheet_name="Sheet1")
+    originInfo["专业代码"] = originInfo["专业代码"].astype(str)
+    originInfo["专业代码"] = originInfo["专业代码"].apply(
+        lambda x: x if len(x) == 2 else "0"+x)
+
+
+    for y in ["2023","2022","2021","2020"]:
+        xlsxpath = "山东省各批次志愿录取数据年份合并\\{0}一二三批次合并.xlsx".format(y)
+        extraInfo = pandas.read_excel(
+            io=xlsxpath, header=0, sheet_name="Sheet1")
+
+        extraInfo[majorCode] = extraInfo[majorCode].astype(str)
+        extraInfo[majorCode] = extraInfo[majorCode].apply(
+            lambda x: x if len(x) == 2 else "0"+x)
+
+        # 合并代码相同的
+        originInfo = pandas.merge(left=originInfo, right=extraInfo, how="left", left_on=[
+            "院校代码", "专业代码"], right_on=["院校编号", majorCode], suffixes=(None, y))
+        originInfo.drop(columns=["院校编号"+y, majorCode+y],inplace=True)
+        originInfo.drop_duplicates(inplace=True, keep="first")
+
+    with pandas.ExcelWriter(path=fn, engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
+
+        originInfo.to_excel(excel_writer=xlsxwriter,
+                           sheet_name="Sheet2", index=False, header=True)
 
 # 专业代号及名称	院校代号及名称	投档计划数	投档最低位次
 
@@ -117,6 +179,7 @@ def mergePlanandVote():
             "院校名称", "专业名称"], right_on=["院校名称", "专业名称"], suffixes=(None, y))
 
     print(plan2024Year.head(n=2))
+
     plan2024Year.to_excel(excel_writer="out3.xlsx",
                           sheet_name="Sheet1", index=False, header=True)
 
@@ -174,8 +237,8 @@ def filterduple():
     return
 
 
-
 def finalVote():
+
     finalVote = pandas.read_excel(
         io="最终报考1.xlsx", header=0, sheet_name="Sheet1")
 
@@ -187,22 +250,29 @@ def finalVote():
     infoFileObscure = pandas.read_excel(
         io="本科专业名称模糊匹配.xlsx", header=0, sheet_name="Sheet1")
     finalVote["专业名称简版"] = finalVote["专业名称"].apply(
-            lambda x: (x.split(sep="("))[0])
+        lambda x: (x.split(sep="("))[0])
     finalVoteObscure = pandas.merge(left=finalVote, right=infoFileObscure, left_on=[
-                             "院校代码", "专业名称简版"], right_on=["院校代码", "专业名称简版"], how="left",suffixes=(None,"模糊"))
+        "院校代码", "专业名称简版"], right_on=["院校代码", "专业名称简版"], how="left", suffixes=(None, "模糊"))
 
     with pandas.ExcelWriter(path="最终报考1.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
 
         finalVoteFine.to_excel(excel_writer=xlsxwriter,
                                sheet_name="精确匹配", index=False, header=True)
         finalVoteObscure.to_excel(excel_writer=xlsxwriter,
-                            sheet_name="模糊匹配", index=False, header=True)
+                                  sheet_name="模糊匹配", index=False, header=True)
     return
 
 
+if __name__ == "__main__":
+    p1 = multiprocessing.Process(
+        target=adminPlanAddExtra, args=("本科1.xlsx",))
+    p2 = multiprocessing.Process(
+        target=adminPlanAddExtra, args=("专科1.xlsx",))
 
-if __name__=="__main__":
-    p = multiprocessing.Process(
-        target=finalVote, args=())
+    p1.start()
+    p2.start()
+
+    p2.join()
+    p1.join()
+
     pass
-
