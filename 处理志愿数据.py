@@ -61,7 +61,7 @@ def nameChange():
     return
 
 
-def adminPlan():
+def admitPlan():
     filepath1 = "山东省招生计划数据\\山东_招生计划_2024.xlsx"
     filepath2 = "本科专业名称精确匹配.xlsx"
     # 院校名称，专业名称
@@ -93,7 +93,7 @@ def adminPlan():
                           sheet_name="Sheet1", index=False, header=True)
 
 
-def adminPlanAddExtra(fn="本科1.xlsx"):
+def admitPlanAddExtra(fn="本科1.xlsx"):
     # 在2024年的数据中基于专业代码进行对齐会比基于名称进行对齐多出越7000条，几乎可以全覆盖
     majorCode = "专业编号"  # 使用专业名称或者是专业名称简版(仅有括号前)
     
@@ -202,10 +202,10 @@ def filterTargetMajor():
     mergePlan1 = mergePlan[(mergePlan["专业名称简版"].isin(
         collegeMajor)) & (mergePlan["选科要求"].isin(subjectLimit))]
 
-    maxadmin = 150000
+    maxadmit = 150000
     # 名次限制，大于15万或者是新开专业
-    mergePlan2 = mergePlan1[((mergePlan1["投档最低位次2023"] > maxadmin) | (mergePlan1["投档最低位次2022"] >
-                             maxadmin) | (mergePlan1["投档最低位次2021"] > maxadmin) | (mergePlan1["投档最低位次2020"] > maxadmin)) |
+    mergePlan2 = mergePlan1[((mergePlan1["投档最低位次2023"] > maxadmit) | (mergePlan1["投档最低位次2022"] >
+                             maxadmit) | (mergePlan1["投档最低位次2021"] > maxadmit) | (mergePlan1["投档最低位次2020"] > maxadmit)) |
                             (pandas.isna(mergePlan1["投档最低位次2023"]) & pandas.isna(mergePlan1["投档最低位次2022"]) &
                              pandas.isna(mergePlan1["投档最低位次2021"]) & pandas.isna(mergePlan1["投档最低位次2020"]))]
     # 仅保留单一学校专业以便于查看
@@ -265,9 +265,9 @@ def finalVote():
 
 if __name__ == "__main__":
     p1 = multiprocessing.Process(
-        target=adminPlanAddExtra, args=("本科1.xlsx",))
+        target=admitPlanAddExtra, args=("本科1.xlsx",))
     p2 = multiprocessing.Process(
-        target=adminPlanAddExtra, args=("专科1.xlsx",))
+        target=admitPlanAddExtra, args=("专科1.xlsx",))
 
     p1.start()
     p2.start()
