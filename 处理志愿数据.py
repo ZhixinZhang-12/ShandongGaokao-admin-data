@@ -7,6 +7,7 @@ import multiprocessing
 import threading
 import re
 
+from regex import R
 from sympy import true
 
 '''
@@ -18,6 +19,7 @@ from sympy import true
 2022年数据中括号全部为中文，需要替换为英文
 
 '''
+allYear = ["2024", "2023", "2022", "2021", "2020"]
 
 
 def collegeInfo():
@@ -96,7 +98,7 @@ def admitPlan():
 def admitPlanAddExtra(fn="本科1.xlsx"):
     # 在2024年的数据中基于专业代码进行对齐会比基于名称进行对齐多出越7000条，几乎可以全覆盖
     majorCode = "专业编号"  # 使用专业名称或者是专业名称简版(仅有括号前)
-    
+
     # 院校名称，专业名称,之前已经完成合并的文件
     originInfo = pandas.read_excel(
         io=fn, header=0, skiprows=0, sheet_name="Sheet1")
@@ -104,8 +106,7 @@ def admitPlanAddExtra(fn="本科1.xlsx"):
     originInfo["专业代码"] = originInfo["专业代码"].apply(
         lambda x: x if len(x) == 2 else "0"+x)
 
-
-    for y in ["2023","2022","2021","2020"]:
+    for y in ["2023", "2022", "2021", "2020"]:
         xlsxpath = "山东省各批次志愿录取数据年份合并\\{0}一二三批次合并.xlsx".format(y)
         extraInfo = pandas.read_excel(
             io=xlsxpath, header=0, sheet_name="Sheet1")
@@ -117,13 +118,13 @@ def admitPlanAddExtra(fn="本科1.xlsx"):
         # 合并代码相同的
         originInfo = pandas.merge(left=originInfo, right=extraInfo, how="left", left_on=[
             "院校代码", "专业代码"], right_on=["院校编号", majorCode], suffixes=(None, y))
-        originInfo.drop(columns=["院校编号"+y, majorCode+y],inplace=True)
+        originInfo.drop(columns=["院校编号"+y, majorCode+y], inplace=True)
         originInfo.drop_duplicates(inplace=True, keep="first")
 
     with pandas.ExcelWriter(path=fn, engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
 
         originInfo.to_excel(excel_writer=xlsxwriter,
-                           sheet_name="Sheet2", index=False, header=True)
+                            sheet_name="Sheet2", index=False, header=True)
 
 # 专业代号及名称	院校代号及名称	投档计划数	投档最低位次
 
@@ -263,16 +264,69 @@ def finalVote():
     return
 
 
+def majorCount(year: str):
+    yearMerge = pandas.read_excel(
+        io="山东省各批次志愿录取数据年份合并/{y}一二三批次合并.xlsx".format(y=year), header=0, sheet_name="Sheet1")
+    yearMerge["majorMain"] = yearMerge["专业名称"].apply(
+        lambda x: re.match(r'^([^()]+)', x).group())  # type: ignore
+
+    countDf1 = yearMerge[["majorMain", "批次", "投档计划数"]]
+    majorMerge = countDf1.groupby(by=["majorMain", "批次"], as_index=False).sum()
+
+    majorMerge.sort_values(by=["批次", "投档计划数"], inplace=True, ascending=False)
+
+    majorMerge.to_csv(path_or_buf="{y}adminCount.csv".format(y=year),
+                      header=True, index=False, encoding="utf8")
+
+    return majorMerge
+
+
+onKey1 = ["批次", "majorMain"]
+
+
+def mergeLit(li: list):
+
+    dt = pandas.merge(left=li[0], right=li[1], how="outer", on=onKey1)
+    print(dt.head())
+    return dt
+
+
+def majorCount2020():
+    mc2020=pandas.read_csv(filepath_or_buffer="2020adminCount.csv",sep=",",header=0,encoding="utf8")
+    ma=pandas.read_excel(
+        io="报考要求信息/仅更名.xlsx", header=0, sheet_name="Sheet1")
+    # 专业代码	专业名称	原专业代码	原专业名称
+    mc20201=pandas.merge(left=mc2020,right=ma,how="left",left_on="majorMain",right_on="原专业名称")
+    mc20201=mc20201[["majorMain","专业名称","批次","投档计划数"]]
+    mc20201["专业名称"].fillna(value=mc20201["majorMain"],inplace=True)
+    print(mc20201.head())
+    mc20201.to_csv(path_or_buf="20201adminCount.csv",
+                      header=True, index=False, encoding="utf8")
+    return
+
 if __name__ == "__main__":
-    p1 = multiprocessing.Process(
-        target=admitPlanAddExtra, args=("本科1.xlsx",))
-    p2 = multiprocessing.Process(
-        target=admitPlanAddExtra, args=("专科1.xlsx",))
 
-    p1.start()
-    p2.start()
+    with multiprocessing.Pool(processes=5) as p:
+        li = p.map(func=majorCount, iterable=allYear)
 
-    p2.join()
-    p1.join()
+    with multiprocessing.Pool(processes=2) as p1:
+        li1 = p1.map(func=mergeLit, iterable=[[li[0], li[1]], [li[2], li[3]]])
 
+    dfret = pandas.merge(left=li1[0], right=li1[1],
+                         how="outer", on=onKey1)
+    
+    
+    mc2020=pandas.read_csv(filepath_or_buffer="20201adminCount.csv",sep=",",header=0,encoding="utf8")
+    
+    dfret = pandas.merge(left=dfret, right=mc2020,                        
+                         how="outer", on=onKey1)
+    
+    
+    dfret.fillna(value=0,inplace=True)
+    dfret.sort_values(by=["批次"], inplace=True, ascending=False)
+
+    print(dfret.head())
+    # dfret.to_csv(path_or_buf="2024test.csv", header=True,
+    #              index=False, encoding="utf8")
+    dfret.to_excel(excel_writer="majorcount.xlsx",sheet_name="Sheet1", index=False, header=True)
     pass

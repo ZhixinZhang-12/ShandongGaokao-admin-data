@@ -1,6 +1,7 @@
 import pandas
 import pyecharts
 import pyecharts.options as opts
+import pyecharts.charts
 
 import jieba
 import re
@@ -8,9 +9,6 @@ import numpy
 import pandas
 import multiprocessing
 import collections
-
-from sqlalchemy import label
-from sympy import prime
 
 
 # 试图找出符合专业/院校条件的组合,专业列表,学校列表,名次范围,最终要拿到的组合单位个数
@@ -72,16 +70,16 @@ stackNum = ["1", "2", "3", "4", "4", "5", "5", "6", "6"]
 # 基本信息图表
 
 
-def drawBar1():
+def drawBar1(chartTitle: str):
     # 设置柱状图
     bar = (pyecharts.charts.Bar(
-        init_opts=opts.InitOpts(width="2000px", height="1000px", bg_color="#FFFFFF"))  # 设置大小
+        init_opts=opts.InitOpts(width="1600px", height="800px", bg_color="#FFFFFF"))  # 设置大小
         .add_xaxis(xaxis_data=year)  # 这三年的数据
         # 设置折线图的y轴，设置可以不从0开始以更方便的看变化
         .extend_axis(yaxis=opts.AxisOpts(
             name="高考报考人数", type_="value", position="right", is_show=True, offset=0, min_=100000, max_=1000000))  # is_scale=True,
 
-        .set_global_opts(title_opts=opts.TitleOpts(title="新高考改革以来各类人数变化"),
+        .set_global_opts(title_opts=opts.TitleOpts(title=chartTitle),
                          toolbox_opts=opts.ToolboxOpts(is_show=True,),
                          tooltip_opts=opts.TooltipOpts(
                              trigger="none", axis_pointer_type="cross"),
@@ -89,7 +87,7 @@ def drawBar1():
                              name="高考录取人数", min_=100000, max_=500000),
                          legend_opts=opts.LegendOpts(
                              pos_bottom="0%", orient="horizontal"),  # 将图例置于底部
-
+                         datazoom_opts=[opts.DataZoomOpts()]
                          )  # 设置标题和坐标轴信息
 
     )
@@ -109,8 +107,7 @@ def drawBar1():
         line.add_yaxis(
             series_name=j, y_axis=applicantDict[j], yaxis_index=1, z_level=1)
     # 重叠二者
-    bar.overlap(line).render("regular.html")
-    return None  # 返回柱状图和折线图
+    return bar.overlap(line)  # 返回柱状图和折线图
 
 
 a1 = [[2.652685464804056, 5.9856032992156205, 2.5728141336504344, 2.9654396600212487],
@@ -126,15 +123,15 @@ a1 = [[2.652685464804056, 5.9856032992156205, 2.5728141336504344, 2.965439660021
 # 增长率图表
 
 
-def drawLine2():
+def drawLine2(chartTitle: str):
     bar = (pyecharts.charts.Bar(
-        init_opts=opts.InitOpts(width="2000px", height="1000px", bg_color="#FFFFFF"))  # 设置大小
+        init_opts=opts.InitOpts(width="1600px", height="800px", bg_color="#FFFFFF"))  # 设置大小
         .add_xaxis(xaxis_data=year[1:])  # 这三年的数据
         # 设置折线图的y轴，设置可以不从0开始以更方便的看变化
         .extend_axis(yaxis=opts.AxisOpts(
             name="人数增长率折线图", type_="value", position="right", is_show=True, offset=0, min_=-10, max_=25))  # is_scale=True,
 
-        .set_global_opts(title_opts=opts.TitleOpts(title="新高考改革以来各类人数增长变化"),
+        .set_global_opts(title_opts=opts.TitleOpts(title=chartTitle),
                          toolbox_opts=opts.ToolboxOpts(is_show=True,),
                          tooltip_opts=opts.TooltipOpts(
                              trigger="none", axis_pointer_type="cross"),
@@ -174,21 +171,92 @@ def drawLine2():
         line.add_yaxis(
             series_name=admitInfoList1[i]+"增长率", y_axis=[a1[i][j]+a1[i+1][j] for j in range(0, 4)], yaxis_index=1, z_level=1)
 
-    bar.overlap(line).render("growthStack.html")
+    return bar.overlap(line)
 
+
+allYear = ["2020", "2021", "2022", "2023", "2024"]
+# 绘制每年招收人数最多的几个专业，绘制时间轮播图
+
+
+def drawTimeline3(adminBatch: str, chartTitle: str):
+    mc = pandas.read_excel(io="各专业招收人数总和统计.xlsx",
+                           sheet_name="Sheet1", header=0)
+    mc1batch = mc[mc["批次"] == adminBatch]
+    tl = pyecharts.charts.Timeline(
+        init_opts=opts.InitOpts(width="1600px", height="1600px",))
+
+    for y in allYear:
+        mc1batchLar = mc1batch.nlargest(n=50, columns="投档计划数"+y)
+        mc1batchLar.sort_values(by="投档计划数"+y, ascending=True, inplace=True)
+        singleBar = (
+            pyecharts.charts.Bar(init_opts=opts.InitOpts(
+                width="800px", height="1600px",))
+            .add_xaxis(mc1batchLar["专业名称2024"].to_list())
+            .add_yaxis("本专业录取人数总和", mc1batchLar["投档计划数"+y].to_list())
+            .reversal_axis()
+            .set_series_opts(label_opts=opts.LabelOpts(position="right"))
+            .set_global_opts(title_opts=opts.TitleOpts(title=chartTitle))
+        )
+        tl.add(chart=singleBar, time_point=y+"年")
+    return tl
+
+# 绘制每年招收人数最少的几个专业，绘制词云图
+
+
+def drawWordcloud4(adminBatch: str, chartTitle: str):
+    mc = pandas.read_excel(io="各专业招收人数总和统计.xlsx",
+                           sheet_name="Sheet1", header=0)
+    mc1batch = mc[mc["批次"] == adminBatch]
+    tl = pyecharts.charts.Timeline(
+        init_opts=opts.InitOpts(width="1200px", height="1200px",))
+
+    for y in allYear:
+        mc1batch1 = mc1batch[mc1batch["投档计划数"+y] > 0]
+        mc1batchSma = mc1batch1.nsmallest(n=100, columns="投档计划数"+y)
+        datapa = list(zip(mc1batchSma["专业名称2024"],
+                      mc1batchSma["投档计划数"+y]))
+
+        singleWc = (
+            pyecharts.charts.WordCloud(opts.InitOpts(
+                width="1200px", height="1200px",))
+            .add(series_name="最冷门专业", shape="pentagon", data_pair=datapa, word_size_range=[10, 50], rotate_step=0, )
+            .set_global_opts(
+                title_opts=opts.TitleOpts(title=chartTitle),
+                tooltip_opts=opts.TooltipOpts(is_show=True)
+            )
+        )
+        # singleWc.render(y+"年词云图.html")
+        tl.add(chart=singleWc, time_point=y+"年")
+    return tl
+
+
+def drawPage():
+    page = pyecharts.charts.Page(
+        layout=pyecharts.charts.Page.DraggablePageLayout)
+    page.add(
+        drawBar1("新高考改革以来各类人数变化"),
+        drawLine2("新高考改革以来各类人数增长变化"),
+        drawTimeline3("一批次", "本科批次每年录取人数最多的50个专业"),
+        drawTimeline3("二批次", "专科科批次每年录取人数最多的50个专业"),
+        drawWordcloud4("一批次", "本科科批次每年录取人数最少的100个专业"),
+        drawWordcloud4("二批次", "专科科批次每年录取人数最少的100个专业"),
+
+    )
+    page.render("page.html")
     return
 
 
 if __name__ == "__main__":
     # li2=[['1'],['2'],['12']]
     # print([*i  for i in li2])
-    # y = ["2020", "2021", "2022", "2023", "2024"]
+    #
     # mp = multiprocessing.Pool()
     # mp.map(adminOrigdata, y)
 
     # mp.join()
     # mp.close()
-    drawLine2()
+    drawPage()
+    #drawWordcloud4("二批次", "专科科批次每年录取人数最少的50个专业")
 
     pass
 
