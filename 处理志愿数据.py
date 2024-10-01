@@ -1,3 +1,4 @@
+from ast import Str
 from calendar import c
 import numpy
 import pandas
@@ -7,8 +8,6 @@ import multiprocessing
 import threading
 import re
 
-from regex import R
-from sympy import true
 
 '''
 原则：以2024年数据作为基准，将其他年份的数据对齐到2024年的招生计划数据
@@ -75,7 +74,7 @@ def admitPlan():
     # 招生院校，专业名称
     collegekind = r"\([^()]*[\b民办|公办|独立学院|合作办学\b][^()]*\)"
 
-    for y in ["2023", "2022", "2021", "2020"]:
+    for y in allYear:
         xlsxpath = "山东省各批次志愿录取数据\\{0}一二三批次合并.xlsx".format(y)
         planOtherYear = pandas.read_excel(
             io=xlsxpath, header=0, sheet_name="Sheet1")
@@ -95,37 +94,57 @@ def admitPlan():
                           sheet_name="Sheet1", index=False, header=True)
 
 
-def admitPlanAddExtra(fn="本科1.xlsx"):
+def admitPlanAddExtra(args):
+    planfn, mergerTagIdx = args
     # 在2024年的数据中基于专业代码进行对齐会比基于名称进行对齐多出越7000条，几乎可以全覆盖
-    majorCode = "专业编号"  # 使用专业名称或者是专业名称简版(仅有括号前)
-
+    batchTag = ["专业编号", "专业名称"]  # 使用专业代号或者是专业名称进行合并
+    infoFTag = ["专业代码", "专业名称"]
     # 院校名称，专业名称,之前已经完成合并的文件
     originInfo = pandas.read_excel(
-        io=fn, header=0, skiprows=0, sheet_name="Sheet1")
+        io=planfn, header=0, skiprows=0, sheet_name="Sheet1")
     originInfo["专业代码"] = originInfo["专业代码"].astype(str)
     originInfo["专业代码"] = originInfo["专业代码"].apply(
         lambda x: x if len(x) == 2 else "0"+x)
 
-    for y in ["2023", "2022", "2021", "2020"]:
+    for y in allYear:
         xlsxpath = "山东省各批次志愿录取数据年份合并\\{0}一二三批次合并.xlsx".format(y)
         extraInfo = pandas.read_excel(
             io=xlsxpath, header=0, sheet_name="Sheet1")
 
-        extraInfo[majorCode] = extraInfo[majorCode].astype(str)
-        extraInfo[majorCode] = extraInfo[majorCode].apply(
+        extraInfo[batchTag[0]] = extraInfo[batchTag[0]].astype(str)
+        extraInfo[batchTag[0]] = extraInfo[batchTag[0]].apply(
             lambda x: x if len(x) == 2 else "0"+x)
 
-        # 合并代码相同的
-        originInfo = pandas.merge(left=originInfo, right=extraInfo, how="left", left_on=[
-            "院校代码", "专业代码"], right_on=["院校编号", majorCode], suffixes=(None, y))
-        originInfo.drop(columns=["院校编号"+y, majorCode+y], inplace=True)
-        originInfo.drop_duplicates(inplace=True, keep="first")
+        # 合并名称或代码相同的
 
-    with pandas.ExcelWriter(path=fn, engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
+        if mergerTagIdx == 0:  # 基于代号,仅删除院校，名称直接保留
+            # 合并名称或代码相同的
+            originInfo = pandas.merge(left=originInfo, right=extraInfo, how="left", left_on=[
+                "院校代码", infoFTag[mergerTagIdx]], right_on=["院校编号", batchTag[mergerTagIdx]], suffixes=(None, y))
+            # originInfo.drop(columns=[ "专业编号"+y], inplace=True)
+        elif mergerTagIdx == 1:  # 基于名称,删掉代号并额外加入当年名称作为后续拼接对齐用
+            extraInfo["专业名称"+y] = extraInfo["专业名称"]
+            # 合并名称或代码相同的
+            originInfo = pandas.merge(left=originInfo, right=extraInfo, how="left", left_on=[
+                "院校代码", infoFTag[mergerTagIdx]], right_on=["院校编号", batchTag[mergerTagIdx]], suffixes=(None, y))
 
-        originInfo.to_excel(excel_writer=xlsxwriter,
-                            sheet_name="Sheet2", index=False, header=True)
+        try:
+            originInfo.drop(columns=["院校名称"+y, "院校编号"+y, "批次"+y], inplace=True)
+        except KeyError as ke:
+            print("keyerror", ke)
+            pass
+        else:
+            print("合并完成", y)
+    originInfo.drop_duplicates(subset=[
+                               "专业名称2024", "专业名称2023", "专业名称2022", "专业名称2021", "专业名称2020"], inplace=True, keep="first")
+    # originInfo.to_excel(excel_writer="{}{}.xlsx".format(planfn[-10:-1],mergerTagIdx), sheet_name="Sheet1", index=False, header=True)
+    originInfo.to_csv(path_or_buf="{}{}.csv".format(
+        planfn[-10:-1], mergerTagIdx), index=False, header=True, encoding="gbk")
+    # with pandas.ExcelWriter(path=outfn, engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
 
+    #     originInfo.to_excel(excel_writer=xlsxwriter,
+    #                         sheet_name="Sheet1", index=False, header=True)
+    return originInfo
 # 专业代号及名称	院校代号及名称	投档计划数	投档最低位次
 
 
@@ -153,6 +172,7 @@ def EachBatch():
     print(mergeBatch.head())
     mergeBatch.to_excel(excel_writer="一二三批次合并.xlsx",
                         sheet_name="Sheet1", index=False, header=True)
+
     return
 
 
@@ -187,57 +207,6 @@ def mergePlanandVote():
     return
 
 
-def filterTargetMajor():
-    # 目标选考科目限制和目标专业
-    collegeMajor = ["道路与桥梁工程技术", "电气工程及自动化", "电气工程及其自动化", "电气类", "电气自动化技术",
-                    "车辆工程", "智能车辆工程", "物流管理", "现代物流管理",
-                    "交通运输", "交通运输类", "口腔医学", "眼视光医学", "医学检验技术", "医学实验技术",
-                    "测绘工程", "测绘工程技术", "测绘类",  "测控工程", "测绘技术与仪器", "现代测控工程技术"]
-    subjectLimit = ["物理", "化学", "生物", "不限", "物理或化学或生物",
-                    "物理和化学和生物", "物理和化学", "物理和生物", "化学和生物",]
-
-    xlsxpath = "out1.xlsx"
-    mergePlan = pandas.read_excel(
-        io=xlsxpath, header=0, sheet_name="Sheet1")
-    # 符合专业和选课条件标准
-    mergePlan1 = mergePlan[(mergePlan["专业名称简版"].isin(
-        collegeMajor)) & (mergePlan["选科要求"].isin(subjectLimit))]
-
-    maxadmit = 150000
-    # 名次限制，大于15万或者是新开专业
-    mergePlan2 = mergePlan1[((mergePlan1["投档最低位次2023"] > maxadmit) | (mergePlan1["投档最低位次2022"] >
-                             maxadmit) | (mergePlan1["投档最低位次2021"] > maxadmit) | (mergePlan1["投档最低位次2020"] > maxadmit)) |
-                            (pandas.isna(mergePlan1["投档最低位次2023"]) & pandas.isna(mergePlan1["投档最低位次2022"]) &
-                             pandas.isna(mergePlan1["投档最低位次2021"]) & pandas.isna(mergePlan1["投档最低位次2020"]))]
-    # 仅保留单一学校专业以便于查看
-    mergePlan3 = mergePlan2.drop_duplicates(
-        subset=["院校名称", "专业名称"], keep="first")
-    # 向xlsx中写入多张工作表
-    with pandas.ExcelWriter(path="初步筛选专科.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
-        mergePlan1.to_excel(excel_writer=xlsxwriter,
-                            sheet_name="无排名仅专业选课限制", index=False, header=True)
-        mergePlan2.to_excel(excel_writer=xlsxwriter,
-                            sheet_name="排名15万后及专业选课限制", index=False, header=True)
-        mergePlan3.to_excel(excel_writer=xlsxwriter,
-                            sheet_name="排名15万后学校及专业去重(往年排名不全)", index=False, header=True)
-
-    return
-
-
-def filterduple():
-    xlsxpath = "仅录取计划2.xlsx"
-    mergePlan1 = pandas.read_excel(
-        io=xlsxpath, header=0, sheet_name="Sheet1")
-
-    mergePlan2 = mergePlan1[(pandas.isna(mergePlan1["投档计划数2023"]) & pandas.isna(
-        mergePlan1["投档计划数2022"]) & pandas.isna(mergePlan1["投档计划数2021"]) & pandas.isna(mergePlan1["投档计划数2020"]))]
-
-    with pandas.ExcelWriter(path="仅录取计划2.xlsx", engine="openpyxl", mode="a", if_sheet_exists="replace") as xlsxwriter:
-        mergePlan2.to_excel(excel_writer=xlsxwriter,
-                            sheet_name="Sheet2", index=False, header=True)
-    return
-
-
 def finalVote():
 
     finalVote = pandas.read_excel(
@@ -264,11 +233,11 @@ def finalVote():
     return
 
 
-def majorCount(year: str):
+def majorCount(year: str):  # 统计不同专业的录取人数总数
     yearMerge = pandas.read_excel(
         io="山东省各批次志愿录取数据年份合并/{y}一二三批次合并.xlsx".format(y=year), header=0, sheet_name="Sheet1")
     yearMerge["majorMain"] = yearMerge["专业名称"].apply(
-        lambda x: re.match(r'^([^()]+)', x).group())  # type: ignore
+        lambda x: re.match(r'^([^()]+)', x).group())  # type: ignore 忽视括号内的修饰部分，仅提取最前面专业名称
 
     countDf1 = yearMerge[["majorMain", "批次", "投档计划数"]]
     majorMerge = countDf1.groupby(by=["majorMain", "批次"], as_index=False).sum()
@@ -285,48 +254,80 @@ onKey1 = ["批次", "majorMain"]
 
 
 def mergeLit(li: list):
-
+    # 并行合并数据帧用
     dt = pandas.merge(left=li[0], right=li[1], how="outer", on=onKey1)
     print(dt.head())
     return dt
 
 
 def majorCount2020():
-    mc2020=pandas.read_csv(filepath_or_buffer="2020adminCount.csv",sep=",",header=0,encoding="utf8")
-    ma=pandas.read_excel(
+    mc2020 = pandas.read_csv(
+        filepath_or_buffer="2020adminCount.csv", sep=",", header=0, encoding="utf8")
+    ma = pandas.read_excel(
         io="报考要求信息/仅更名.xlsx", header=0, sheet_name="Sheet1")
     # 专业代码	专业名称	原专业代码	原专业名称
-    mc20201=pandas.merge(left=mc2020,right=ma,how="left",left_on="majorMain",right_on="原专业名称")
-    mc20201=mc20201[["majorMain","专业名称","批次","投档计划数"]]
-    mc20201["专业名称"].fillna(value=mc20201["majorMain"],inplace=True)
+    mc20201 = pandas.merge(left=mc2020, right=ma, how="left",
+                           left_on="majorMain", right_on="原专业名称")
+    mc20201 = mc20201[["majorMain", "专业名称", "批次", "投档计划数"]]  # 进行规整以序号重拍
+    mc20201["专业名称"].fillna(value=mc20201["majorMain"], inplace=True)
     print(mc20201.head())
     mc20201.to_csv(path_or_buf="20201adminCount.csv",
-                      header=True, index=False, encoding="utf8")
+                   header=True, index=False, encoding="utf8")
+    return
+
+
+def serialmerge():
+    df1 = pandas.read_csv(filepath_or_buffer="024专科.xls0.csv",
+                          sep=",", header=0, encoding="gbk")
+    df2 = pandas.read_csv(filepath_or_buffer="024专科.xls1.csv",
+                          sep=",", header=0, encoding="gbk")
+
+    col = df1.columns.to_list()
+    df1 = df1[col]
+    df2 = df2[col]
+
+    df3 = pandas.concat([df1, df2], axis="index")
+    df3.drop_duplicates(inplace=True)
+    print(df3.head())
+    df3.to_csv(path_or_buf="zktest.csv", header=True,
+               index=False, encoding="gbk")
+
+    return
+
+
+charIntRe = r'(\d+)([\u4e00-\u9fff]+)'  # 用于分割前面数字后面汉字的专业类别描述
+
+
+def processMajorClass0():
+    fn = "报考要求信息\\temp.xlsx"
+    mc = pandas.read_excel(io=fn, header=0, sheet_name="Sheet1")
+    mc["类别编号"] = mc["序号"].apply(lambda x: re.match(charIntRe, x).group(1))# type: ignore
+    mc["类别名称"] = mc["序号"].apply(lambda x: re.match(charIntRe, x).group(2)) # type: ignore
+    mc[["类别编号", "类别名称"]].to_csv(
+        path_or_buf="专业序号分割.csv", encoding="utf8", index=False, header=True)
+
+    return
+
+def processMajorClass1():
+    mc = pandas.read_excel(io="高校专业名称变化.xlsx", header=0, sheet_name="Sheet1")
+    mcsplit = pandas.read_csv(filepath_or_buffer="专业序号分割.csv",header=0,encoding="utf8")
+    mc["专业编号"]=mc["专业编号"].astype(str)
+    mcsplit["类别编号"]=mcsplit["类别编号"].astype(str) # 6位编号，114514(K)
+    mc["专业小类编号"]=mc["专业编号"].apply(lambda x : x[0:4]) #1145
+    mc["专业大类编号"]=mc["专业编号"].apply(lambda x : x[0:2]) #11
+    mc=pandas.merge(left=mc,right=mcsplit,how="left",left_on=["专业大类编号"],right_on=["类别编号"],suffixes=(None,"大类"))
+    mc=pandas.merge(left=mc,right=mcsplit,how="left",left_on=["专业小类编号"],right_on=["类别编号"],suffixes=(None,"小类"))
+    print(mc.head())
+    mc.to_csv(path_or_buf="classifiedmajor.csv", encoding="gbk", index=False, header=True)
     return
 
 if __name__ == "__main__":
 
-    with multiprocessing.Pool(processes=5) as p:
-        li = p.map(func=majorCount, iterable=allYear)
+    # bk = "山东省招生计划数据/山东_招生计划_2024本科.xlsx"
+    # zk = "山东省招生计划数据/山东_招生计划_2024专科.xlsx"
+    # ret1 = []
+    # with multiprocessing.Pool(processes=4) as p:
+    #     ret1 = p.map(admitPlanAddExtra, [(bk, 0), (bk, 1), (zk, 0), (zk, 1)])
 
-    with multiprocessing.Pool(processes=2) as p1:
-        li1 = p1.map(func=mergeLit, iterable=[[li[0], li[1]], [li[2], li[3]]])
-
-    dfret = pandas.merge(left=li1[0], right=li1[1],
-                         how="outer", on=onKey1)
-    
-    
-    mc2020=pandas.read_csv(filepath_or_buffer="20201adminCount.csv",sep=",",header=0,encoding="utf8")
-    
-    dfret = pandas.merge(left=dfret, right=mc2020,                        
-                         how="outer", on=onKey1)
-    
-    
-    dfret.fillna(value=0,inplace=True)
-    dfret.sort_values(by=["批次"], inplace=True, ascending=False)
-
-    print(dfret.head())
-    # dfret.to_csv(path_or_buf="2024test.csv", header=True,
-    #              index=False, encoding="utf8")
-    dfret.to_excel(excel_writer="majorcount.xlsx",sheet_name="Sheet1", index=False, header=True)
+    processMajorClass1()
     pass

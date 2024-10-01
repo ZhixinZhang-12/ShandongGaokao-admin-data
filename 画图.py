@@ -6,7 +6,6 @@ import pyecharts.charts
 import jieba
 import re
 import numpy
-import pandas
 import multiprocessing
 import collections
 
@@ -105,7 +104,7 @@ def drawBar1(chartTitle: str):
     # 添加报名人数数据
     for j in applyInfoList:
         line.add_yaxis(
-            series_name=j, y_axis=applicantDict[j], yaxis_index=1, z_level=1)
+            series_name=j, y_axis=applicantDict[j], yaxis_index=1, z_level=1)  # type: ignore
     # 重叠二者
     return bar.overlap(line)  # 返回柱状图和折线图
 
@@ -178,25 +177,33 @@ allYear = ["2020", "2021", "2022", "2023", "2024"]
 # 绘制每年招收人数最多的几个专业，绘制时间轮播图
 
 
-def drawTimeline3(adminBatch: str, chartTitle: str):
+def drawReverseBar3(adminBatch: str, chartTitle: str):
     mc = pandas.read_excel(io="各专业招收人数总和统计.xlsx",
                            sheet_name="Sheet1", header=0)
-    mc1batch = mc[mc["批次"] == adminBatch]
+    mc1batch = mc[mc["批次"] == adminBatch]  # ,index_col="专业名称"
+    # dt = pandas.read_excel(
+    #     io="报考要求信息/专业名称变化本科专科合并扁平表.xlsx", sheet_name="Sheet1")
+    # dt = dt[["专业名称", "大类名称"]]
+    # mc1batch = pandas.merge(left=mc1batch, right=dt, left_on=[
+    #                          "专业名称2024"], right_on=["专业名称"], how="left")
+    
     tl = pyecharts.charts.Timeline(
         init_opts=opts.InitOpts(width="1600px", height="1600px",))
 
-    for y in allYear:
+    for y in allYear:  # 需要加入专业所属大类
         mc1batchLar = mc1batch.nlargest(n=50, columns="投档计划数"+y)
         mc1batchLar.sort_values(by="投档计划数"+y, ascending=True, inplace=True)
         singleBar = (
             pyecharts.charts.Bar(init_opts=opts.InitOpts(
                 width="800px", height="1600px",))
             .add_xaxis(mc1batchLar["专业名称2024"].to_list())
-            .add_yaxis("本专业录取人数总和", mc1batchLar["投档计划数"+y].to_list())
+            .add_yaxis(series_name="总计录取人数", y_axis=mc1batchLar["投档计划数"+y].to_list(), yaxis_index=0)
             .reversal_axis()
             .set_series_opts(label_opts=opts.LabelOpts(position="right"))
             .set_global_opts(title_opts=opts.TitleOpts(title=chartTitle))
         )
+        
+
         tl.add(chart=singleBar, time_point=y+"年")
     return tl
 
@@ -208,20 +215,21 @@ def drawWordcloud4(adminBatch: str, chartTitle: str):
                            sheet_name="Sheet1", header=0)
     mc1batch = mc[mc["批次"] == adminBatch]
     tl = pyecharts.charts.Timeline(
-        init_opts=opts.InitOpts(width="1200px", height="1200px",))
+        init_opts=opts.InitOpts(width="1800px", height="800px",))
 
     for y in allYear:
         mc1batch1 = mc1batch[mc1batch["投档计划数"+y] > 0]
-        mc1batchSma = mc1batch1.nsmallest(n=100, columns="投档计划数"+y)
+        mc1batchSma = mc1batch1.nsmallest(n=150, columns="投档计划数"+y)
         datapa = list(zip(mc1batchSma["专业名称2024"],
-                      mc1batchSma["投档计划数"+y]))
+                      20-mc1batchSma["投档计划数"+y]))
 
         singleWc = (
             pyecharts.charts.WordCloud(opts.InitOpts(
-                width="1200px", height="1200px",))
+                width="1800px", height="800px",))
             .add(series_name="最冷门专业", shape="pentagon", data_pair=datapa, word_size_range=[10, 50], rotate_step=0, )
             .set_global_opts(
-                title_opts=opts.TitleOpts(title=chartTitle),
+                title_opts=opts.TitleOpts(
+                    title=chartTitle, subtitle="用20减去标签显示数值即为真实人数"),
                 tooltip_opts=opts.TooltipOpts(is_show=True)
             )
         )
@@ -230,17 +238,41 @@ def drawWordcloud4(adminBatch: str, chartTitle: str):
     return tl
 
 
+def drawPie():
+
+    p = (pyecharts.charts.Pie(opts.InitOpts(
+        width="1200px", height="600px",))
+        .add(
+        series_name="志愿投出命中全体考生平均概率",
+        data_pair=[("0-30条", 72.33), ("31-70条", 25.03), ("71-96条", 2.64)],
+        radius=["30%", "75%"],
+        center=["25%", "50%"],
+        rosetype="radius",
+        label_opts=opts.LabelOpts(is_show=False),
+    )
+        .add(
+        series_name="志愿投出命中范围比重所占整个96条志愿比重",
+        data_pair=[("0-30条", 31.25), ("31-70条", 41.67), ("71-96条", 27.08)],
+        radius=["30%", "75%"],
+        center=["75%", "50%"],
+        rosetype="radius",
+    )
+        .set_global_opts(title_opts=opts.TitleOpts(title="志愿命中饼图")))
+    # p.render("pie.html")
+    return p
+
+
 def drawPage():
     page = pyecharts.charts.Page(
         layout=pyecharts.charts.Page.DraggablePageLayout)
     page.add(
         drawBar1("新高考改革以来各类人数变化"),
         drawLine2("新高考改革以来各类人数增长变化"),
-        drawTimeline3("一批次", "本科批次每年录取人数最多的50个专业"),
-        drawTimeline3("二批次", "专科科批次每年录取人数最多的50个专业"),
-        drawWordcloud4("一批次", "本科科批次每年录取人数最少的100个专业"),
-        drawWordcloud4("二批次", "专科科批次每年录取人数最少的100个专业"),
-
+        drawReverseBar3("一批次", "本科批次每年录取人数最多的50个专业"),
+        drawReverseBar3("二批次", "专科科批次每年录取人数最多的50个专业"),
+        drawWordcloud4("一批次", "本科科批次每年录取人数最少的150个专业"),
+        drawWordcloud4("二批次", "专科科批次每年录取人数最少的150个专业"),
+        drawPie(),
     )
     page.render("page.html")
     return
@@ -256,8 +288,8 @@ if __name__ == "__main__":
     # mp.join()
     # mp.close()
     drawPage()
-    #drawWordcloud4("二批次", "专科科批次每年录取人数最少的50个专业")
-
+    # drawWordcloud4("二批次", "专科科批次每年录取人数最少的50个专业")
+    # drawPie()
     pass
 
 ''''''
