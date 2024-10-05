@@ -85,5 +85,3 @@ celerybeat-schedule
 .AppleDouble  
 Thumbs.db
 # 忽略分析用文本文件
-*.csv
-.csv
