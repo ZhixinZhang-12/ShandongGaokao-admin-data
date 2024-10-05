@@ -69,7 +69,7 @@ stackNum = ["1", "2", "3", "4", "4", "5", "5", "6", "6"]
 # 基本信息图表
 
 
-def drawBar1(chartTitle: str):
+def KindsCountChangeBar(chartTitle: str):
     # 设置柱状图
     bar = (pyecharts.charts.Bar(
         init_opts=opts.InitOpts(width="1600px", height="800px", bg_color="#FFFFFF"))  # 设置大小
@@ -122,7 +122,7 @@ a1 = [[2.652685464804056, 5.9856032992156205, 2.5728141336504344, 2.965439660021
 # 增长率图表
 
 
-def drawLine2(chartTitle: str):
+def IncreaseRateChangeLine(chartTitle: str):
     bar = (pyecharts.charts.Bar(
         init_opts=opts.InitOpts(width="1600px", height="800px", bg_color="#FFFFFF"))  # 设置大小
         .add_xaxis(xaxis_data=year[1:])  # 这三年的数据
@@ -177,7 +177,7 @@ allYear = ["2020", "2021", "2022", "2023", "2024"]
 # 绘制每年招收人数最多的几个专业，绘制时间轮播图
 
 
-def drawReverseBar3(adminBatch: str, chartTitle: str):
+def MajorMostAdmitBar(adminBatch: str, chartTitle: str):
     mc = pandas.read_excel(io="各专业招收人数总和统计.xlsx",
                            sheet_name="Sheet1", header=0)
     mc1batch = mc[mc["批次"] == adminBatch]  # ,index_col="专业名称"
@@ -210,7 +210,7 @@ def drawReverseBar3(adminBatch: str, chartTitle: str):
 # 绘制每年招收人数最少的几个专业，绘制词云图
 
 
-def drawWordcloud4(adminBatch: str, chartTitle: str):
+def MajorLeastAdmitWordcloud(adminBatch: str, chartTitle: str):
     mc = pandas.read_excel(io="各专业招收人数总和统计.xlsx",
                            sheet_name="Sheet1", header=0)
     mc1batch = mc[mc["批次"] == adminBatch]
@@ -238,7 +238,7 @@ def drawWordcloud4(adminBatch: str, chartTitle: str):
     return tl
 
 
-def drawPie():
+def BatchAdmitRatePie():
 
     p = (pyecharts.charts.Pie(opts.InitOpts(
         width="1200px", height="600px",))
@@ -261,21 +261,31 @@ def drawPie():
     # p.render("pie.html")
     return p
 
+def MajorIncreaseRateLine():
+    
+    
+    
+    
+    
+    return
 
-def drawPage():
+
+def Page():
     page = pyecharts.charts.Page(
         layout=pyecharts.charts.Page.DraggablePageLayout)
     page.add(
-        drawBar1("新高考改革以来各类人数变化"),
-        drawLine2("新高考改革以来各类人数增长变化"),
-        drawReverseBar3("一批次", "本科批次每年录取人数最多的50个专业"),
-        drawReverseBar3("二批次", "专科科批次每年录取人数最多的50个专业"),
-        drawWordcloud4("一批次", "本科科批次每年录取人数最少的150个专业"),
-        drawWordcloud4("二批次", "专科科批次每年录取人数最少的150个专业"),
-        drawPie(),
+        KindsCountChangeBar("新高考改革以来各类人数变化"),
+        IncreaseRateChangeLine("新高考改革以来各类人数增长变化"),
+        MajorMostAdmitBar("一批次", "本科批次每年录取人数最多的50个专业"),
+        MajorMostAdmitBar("二批次", "专科科批次每年录取人数最多的50个专业"),
+        MajorLeastAdmitWordcloud("一批次", "本科科批次每年录取人数最少的150个专业"),
+        MajorLeastAdmitWordcloud("二批次", "专科科批次每年录取人数最少的150个专业"),
+        BatchAdmitRatePie(),
     )
     page.render("page.html")
     return
+
+
 
 
 if __name__ == "__main__":
@@ -287,9 +297,9 @@ if __name__ == "__main__":
 
     # mp.join()
     # mp.close()
-    drawPage()
-    # drawWordcloud4("二批次", "专科科批次每年录取人数最少的50个专业")
-    # drawPie()
+    Page()
+    # Wordcloud4("二批次", "专科科批次每年录取人数最少的50个专业")
+    # Pie()
     pass
 
 ''''''
