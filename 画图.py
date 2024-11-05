@@ -2,7 +2,7 @@ import pandas
 import pyecharts
 import pyecharts.options as opts
 import pyecharts.charts
-
+import pyecharts.render
 import jieba
 import re
 import numpy
@@ -282,7 +282,7 @@ def Page():
         MajorLeastAdmitWordcloud("二批次", "专科科批次每年录取人数最少的150个专业"),
         BatchAdmitRatePie(),
     )
-    page.render("page.html")
+    page.render("可视化图表.html")
     return
 
 
